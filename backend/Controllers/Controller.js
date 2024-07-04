@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken')
 const cookieParser = require('cookie-parser')
 const express = require('express')
+const bcrypt = require('bcrypt')
 const studentModel = require('../Models/Model');
 
 const app = express()
@@ -8,8 +9,10 @@ const app = express()
 app.use(cookieParser())
 
 register = async (req, resp) => {
+    const { username, email, password } = req.body
     try {
-        const createTask = new studentModel(req.body)
+        const bcryptPassword = await bcrypt.hash(password, 10)
+        const createTask = new studentModel({ username: username, email: email, password: bcryptPassword })
         await createTask.save()
         resp.status(200).send("Registration successfully")
     } catch (error) {
@@ -21,22 +24,41 @@ login = async (req, resp) => {
     const { email, password } = req.body
     try {
         const student = await studentModel.findOne({ email })
+        const comparePassword = bcrypt.compare(password, student.password)
         const token = jwt.sign({ student }, process.env.SECRETE_KEY, { expiresIn: '1h' })
-        console.log(token);
         if (!student) {
             resp.status(404).send('Invalid Credencials')
         }
-        if (password !== student.password) {
+        if (!comparePassword) {
             resp.status(404).send('password is invalid')
         }
         else {
-            resp.cookie('token', token)
+            resp.cookie('tokens', token, { maxAge: 30000, httpOnly: true, secure: true, sameSite: 'strick' })
             resp.status(200).json({ token: token, message: 'login succesfully' });
         }
     } catch (error) {
         resp.status(500).send(error.message)
     }
 }
+
+const tokenMiddleware = (req, res, next) => {
+    try {
+        const tokenCookie = req.cookies.tokens;
+        console.log(tokenCookie);
+        if (!tokenCookie) {
+            return res.status(403).send("A token is required for authentication");
+        }
+        jwt.verify(tokenCookie, process.env.SECRETE_KEY, (err, decoded) => {
+            if (err) {
+                return res.status(401).send("Invalid Token");
+            }
+            req.user = decoded;
+            next();
+        });
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+};
 
 createTask = async (req, resp) => {
     try {
@@ -96,24 +118,26 @@ const editTask = async (req, resp) => {
 
 deleteTask = async (req, resp) => {
     try {
-        const student = await studentModel.find(req.params.id)
-        // resp.send(student)
-        const data = await studentModel.find()
-        console.log(data);
-        // if (!student) { resp.status(404).send("Student invalid") }
+        const user = await studentModel.findById(req.params.id);
+        if (!user) {
+            return resp.status(404).send("User not found");
+        }
 
-        // const taskId = await student.tasks.id(req.params.taskid)
+        const taskIndex = user.tasks.findIndex(task => task._id.toString() === req.params.taskid);
 
-        // if (!taskId) { resp.status(404).send("Task Id is Invalid"); }
+        if (taskIndex === -1) {
+            return resp.status(404).send("Task not found");
+        }
 
-        // else {
+        user.tasks.splice(taskIndex, 1);
+        await user.save();
 
-        //     const deleteTask = await studentModel.tasks.deleteOne(req.params.taskid)
-        //     resp.status(200).send("task deleted succesfully", deleteTask)
-        // }
+        resp.status(200).send("Task deleted successfully");
     } catch (error) {
-        resp.status(500).send(error.message)
+        resp.status(500).send(error.message);
     }
 }
 
-module.exports = { register, login, createTask, getTask, editTask, deleteTask }
+
+
+module.exports = { register, login, createTask, getTask, editTask, deleteTask, tokenMiddleware }
