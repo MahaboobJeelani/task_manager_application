@@ -1,9 +1,10 @@
 const express = require('express')
-const { register, login, createTask, editTask, deleteTask } = require('../Controllers/Controller')
+const { register, login, createTask, editTask, deleteTask, tokenMiddleware } = require('../Controllers/Controller')
 
 
-const app = express()
 const routes = express.Router()
+
+
 
 routes.post('/register', register)
 routes.post('/login', login)
